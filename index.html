@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>X-Ray Attenuation Visualization with Formula</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start; 
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+            font-family: Arial, sans-serif;
+        }
+        #container {
+            position: relative;
+            width: 1600px;
+            height: 375px; 
+            background-color: #ffffff;
+            border: 1px solid #ccc;
+            overflow: visible;
+            margin-bottom: 20px;
+        }
+        .label {
+            position: absolute;
+            top: 300px; 
+            font-size: 14px;
+            text-align: center;
+            width: 100px;
+            white-space: nowrap;
+            overflow: visible;
+        }
+        #xray-source {
+            position: absolute;
+            left: 50px;
+            top: 140px;
+            width: 20px;
+            height: 20px;
+            background-color: #ffcc00;
+            border-radius: 50%;
+        }
+        #muscle {
+            position: absolute;
+            left: 200px;
+            top: 75px;
+            height: 150px;
+            background-color: #ff9999; /* Light red for muscle */
+            opacity: 0.7;
+        }
+        #bone {
+            position: absolute;
+            top: 75px;
+            height: 150px;
+            background-color: #999999; /* Gray for bone */
+            opacity: 0.9;
+        }
+        .photon {
+            position: absolute;
+            width: 5px;
+            height: 5px;
+            background-color: #00ff00; /* Green for photons */
+            border-radius: 50%;
+        }
+        #inputs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        #inputs label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        #result {
+            font-size: 16px;
+            margin-bottom: 20px;
+        }
+        #explanation {
+            width: 800px;
+            padding: 10px;
+            background-color: #ffffff;
+            border: 1px solid #ccc;
+            overflow-y: auto;
+            height: auto;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="xray-source"></div>
+        <div id="muscle"></div>
+        <div id="bone"></div>
+        <div class="label" style="left: 40px;">X-Ray Source</div>
+        <div class="label" id="muscle-label" style="left: 200px;">Muscle</div>
+        <div class="label" id="bone-label" style="left: 400px;">Bone</div>
+    </div>
+
+    <div id="inputs">
+        <label>Density (ρ, g/cm³): <input type="number" id="density" value="1.0" min="0" step="0.01"></label>
+        <label>Thickness (x, cm): <input type="number" id="thickness" value="1.0" min="0" step="0.01"></label>
+        <label>Muscle μm (cm²/g): <input type="number" id="umMuscle" value="0.2" min="0" step="0.01"></label>
+        <label>Bone μm (cm²/g): <input type="number" id="umBone" value="0.5" min="0" step="0.01"></label>
+        <button id="update">Update Attenuation</button>
+    </div>
+    <div id="result"></div>
+
+    <div id="explanation">
+        <p>X光衰減的物理原理:首先從Beer–Lambert law 的公式可推導出:</p>
+        <p>I = I<sub>0</sub> e<sup>(-μx)</sup></p>
+        <p>符號說明 I: 穿透後的射線強度</p>
+        <p>I<sub>0</sub>: 初始(穿透前)射線強度</p>
+        <p>μ:衰減係數</p>
+        <p>X:光線穿過物質厚度(單位:公分)</p>
+        <p>而如果把I<sub>0</sub>移項，I/I<sub>0</sub>就是光線的穿透率</p>
+        <p>但在實務上更常使用質量衰減係數來表示</p>
+        <p>若我們使用質量衰減係數(定義為μ/ρ)，ρ為密度(單位:g/cm<sup>3</sup>)，可以寫作:</p>
+        <p>I = I<sub>0</sub> e<sup>-(μ/ρ)λ</sup></p>
+        <p>在這裡λ=ρ(密度)乘以x(光線穿過物質厚度)</p>
+        <p>所以此系統透過自由的調整三項關鍵參數，可以體會到當厚度越高時穿透比率(I/I<sub>0</sub>)會下降，而質量衰減常數(μ/ρ)會隨著x射線能量(多少eV)、組成元素比例、組成元素的原子序(Z)(在比較低能量，由光電效應主導情況下，μ 會正比於 Z<sup>³</sup> / E<sup>³</sup>)等因素影響，在醫學的診斷用能量範圍時，一般衰減係數:骨頭>肌肉>脂肪，衰減係數越大穿透比率越低。最後密度(ρ)越大，穿透比率也會下降。</p>
+    </div>
+
+    <script>
+        const container = document.getElementById('container');
+        const muscleElement = document.getElementById('muscle');
+        const boneElement = document.getElementById('bone');
+        const muscleLabel = document.getElementById('muscle-label');
+        const boneLabel = document.getElementById('bone-label');
+        let muscleLeft = 200;
+        let muscleWidth = 50; // Initial width (scale * initial x)
+        let boneLeft = muscleLeft + muscleWidth + 100; // Gap of 100px between muscle and bone
+        let boneWidth = 50;
+        const photonSpeed = 2; // pixels per frame
+        const emissionInterval = 50; // ms between emitting new photons
+        const photons = [];
+        const I0 = 100;
+        const scale = 50; // pixels per cm for thickness visualization
+
+        let absorptionMuscle = 0.2; // Initial absorption rates
+        let absorptionBone = 0.99;
+
+        // Update button event
+        document.getElementById('update').addEventListener('click', () => {
+            const p = parseFloat(document.getElementById('density').value);
+            const x = parseFloat(document.getElementById('thickness').value);
+            const umMuscleVal = parseFloat(document.getElementById('umMuscle').value);
+            const umBoneVal = parseFloat(document.getElementById('umBone').value);
+
+            // Check for empty / invalid values
+            if (isNaN(p) || isNaN(x) || isNaN(umMuscleVal) || isNaN(umBoneVal)) {
+                document.getElementById('result').innerHTML = '請輸入有效數值。';
+                return;
+            }
+
+            // Check for physically invalid negative values
+            if (p < 0 || x < 0 || umMuscleVal < 0 || umBoneVal < 0) {
+                document.getElementById('result').innerHTML = '密度、厚度與衰減係數不可為負值。';
+                return;
+            }
+
+            // Calculate transmission rates
+            const transMuscle = Math.exp(-umMuscleVal * p * x);
+            const transBone = Math.exp(-umBoneVal * p * x);
+
+            absorptionMuscle = 1 - transMuscle;
+            absorptionBone = 1 - transBone;
+
+            // Display results
+            document.getElementById('result').innerHTML = `
+                Muscle (μm=${umMuscleVal}): I/I0 = ${transMuscle.toFixed(4)} (Absorption: ${(absorptionMuscle * 100).toFixed(2)}%)<br>
+                Bone (μm=${umBoneVal}): I/I0 = ${transBone.toFixed(4)} (Absorption: ${(absorptionBone * 100).toFixed(2)}%)
+            `;
+
+            // Update visual thicknesses
+            muscleWidth = Math.max(10, x * scale); // Min width 10px
+            boneWidth = Math.max(10, x * scale);
+            muscleElement.style.width = `${muscleWidth}px`;
+            boneLeft = muscleLeft + muscleWidth + 100; // Update bone position
+            boneElement.style.left = `${boneLeft}px`;
+            boneElement.style.width = `${boneWidth}px`;
+
+            // Update labels positions to center under blocks
+            muscleLabel.style.left = `${muscleLeft + (muscleWidth / 2) - 50}px`; // Center (width 100px)
+            boneLabel.style.left = `${boneLeft + (boneWidth / 2) - 50}px`;
+
+            // Clear existing photons to restart with new rates and positions
+            photons.forEach(photon => {
+                if (photon && photon.parentNode) container.removeChild(photon);
+            });
+            photons.length = 0;
+        });
+
+        function createPhoton() {
+            const yOffset = Math.random() * 20 - 10; // Small vertical spread
+            const photon = document.createElement('div');
+            photon.className = 'photon';
+            photon.style.left = '70px'; 
+            photon.style.top = `${150 + yOffset}px`; 
+            photon.previousLeft = 70;
+            container.appendChild(photon);
+            return photon;
+        }
+
+        // Function to emit new photons periodically
+        function emitPhoton() {
+            photons.push(createPhoton());
+            setTimeout(emitPhoton, emissionInterval);
+        }
+
+        // Start emitting photons
+        emitPhoton();
+
+        function movePhotons() {
+            photons.forEach((photon, index) => {
+                if (!photon) return;
+
+                const currentLeft = parseFloat(photon.style.left);
+                const newLeft = currentLeft + photonSpeed;
+                photon.style.left = `${newLeft}px`;
+
+                // Check entering muscle
+                if (photon.previousLeft < muscleLeft && newLeft >= muscleLeft) {
+                    if (Math.random() < absorptionMuscle) { // Use calculated absorption
+                        container.removeChild(photon);
+                        photons[index] = null;
+                        return;
+                    }
+                }
+
+                // Check entering bone
+                if (photon.previousLeft < boneLeft && newLeft >= boneLeft) {
+                    if (Math.random() < absorptionBone) { // Use calculated absorption
+                        container.removeChild(photon);
+                        photons[index] = null;
+                        return;
+                    }
+                }
+
+                photon.previousLeft = newLeft;
+
+                // Remove if out of bounds
+                if (newLeft > 1600) { // Updated to match new container width
+                    if (photon.parentNode) {
+                        container.removeChild(photon);
+                    }
+                    photons[index] = null;
+                }
+            });
+
+            // Clean up null entries occasionally
+            if (photons.length > 100) {
+                photons.splice(0, photons.length, ...photons.filter(p => p !== null));
+            }
+
+            requestAnimationFrame(movePhotons);
+        }
+
+        // Start the animation loop
+        movePhotons();
+
+        // Initial calculation and visualization
+        document.getElementById('update').click();
+    </script>
+</body>
+</html>
